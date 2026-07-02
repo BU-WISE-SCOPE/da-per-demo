@@ -1,0 +1,296 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Developmentally Aware PER Demo</title>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #f3f4f6; color: #1f2937; padding: 30px; margin: 0; }
+        .container { max-width: 1000px; margin: 0 auto; }
+        header { margin-bottom: 25px; border-bottom: 2px solid #e5e7eb; padding-bottom: 20px; }
+        
+        .card { background: white; padding: 25px; border-radius: 12px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1); margin-bottom: 25px; }
+        .card-header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #f0f0f0; padding-bottom: 12px; margin-bottom: 15px; }
+        
+        .controls { display: flex; align-items: center; gap: 10px; background: #f8fafc; padding: 8px 12px; border-radius: 6px; border: 1px solid #e2e8f0; }
+        .controls label { font-size: 0.85rem; font-weight: 600; color: #4b5563; }
+        select { padding: 6px 10px; font-size: 0.9rem; border-radius: 4px; border: 1px solid #cbd5e1; background: white; cursor: pointer; font-weight: 600; }
+        
+        .audio-player { margin: 15px 0; width: 100%; border-radius: 8px; }
+        
+        .phoneme-row { margin: 15px 0; padding: 12px; background: #f9fafb; border-radius: 8px; border-left: 4px solid #cbd5e1; }
+        .row-per { border-left-color: #ef4444; }
+        .row-daper { border-left-color: #3b82f6; }
+        
+        .row-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+        .row-title { font-weight: 600; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.05em; color: #4b5563; }
+        .row-error-rate { font-weight: bold; font-size: 0.95rem; padding: 2px 8px; border-radius: 4px; }
+        .per-badge { background: #fee2e2; color: #991b1b; }
+        .daper-badge { background: #dbeafe; color: #1e40af; }
+
+        .phonemes { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+        .ph { padding: 6px 10px; border-radius: 6px; font-family: monospace; font-size: 1.05rem; font-weight: bold; background: #e5e7eb; display: inline-flex; align-items: center; gap: 4px; }
+        
+        /* Error Highlighting */
+        .ph.correct { background: #d1fae5; color: #065f46; }
+        .ph.substitution { background: #fee2e2; color: #991b1b; border: 1px solid #f87171; }
+        .ph.minor-substitution { background: #fef3c7; color: #92400e; border: 1px solid #fbbf24; }
+        .ph.insertion { background: #ffedd5; color: #c2410c; border: 1px solid #f97316; }
+        .ph.deletion { background: #f3f4f6; color: #9ca3af; border: 1px dashed #cbd5e1; text-decoration: line-through; }
+        .ph.minor-deletion { background: #f0fdf4; color: #166534; border: 1px dashed #4ade80; }
+        
+        .weight-badge { font-size: 0.7rem; background: rgba(0,0,0,0.06); padding: 1px 4px; border-radius: 3px; font-weight: normal; color: inherit; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <header>
+        <h1 style="margin:0 0 5px 0;">Developmentally Aware PER Demo</h1>
+        <p style="margin:0; color:#4b5563;">Comparing standard Phoneme Error Rate (PER) against Developmentally Aware PER (DA-PER).</p>
+    </header>
+    
+    <div id="demo-list"></div>
+</div>
+
+<script>
+    let sampleData = [];
+
+    // --- LEVENSHTEIN ENGINE ---
+    const Alignment = {
+        align: function(ref, hyp) {
+            const m = ref.length, n = hyp.length;
+            const dp = Array(m + 1).fill(null).map(() => Array(n + 1).fill(0));
+            const ops = Array(m + 1).fill(null).map(() => Array(n + 1).fill(''));
+
+            for (let i = 0; i <= m; i++) { dp[i][0] = i; ops[i][0] = 'D'; }
+            for (let j = 0; j <= n; j++) { dp[0][j] = j; ops[0][j] = 'I'; }
+
+            for (let i = 1; i <= m; i++) {
+                for (let j = 1; j <= n; j++) {
+                    if (ref[i-1] === hyp[j-1]) { dp[i][j] = dp[i-1][j-1]; ops[i][j] = 'M'; } 
+                    else {
+                        const sub = dp[i-1][j-1] + 1, del = dp[i-1][j] + 1, ins = dp[i][j-1] + 1;
+                        const min = Math.min(sub, del, ins);
+                        dp[i][j] = min;
+                        if (min === sub) ops[i][j] = 'S';
+                        else if (min === del) ops[i][j] = 'D';
+                        else ops[i][j] = 'I';
+                    }
+                }
+            }
+            let i = m, j = n; const result = [];
+            while (i > 0 || j > 0) {
+                const op = ops[i][j];
+                if (op === 'M') { result.unshift({ type: 'equal', ref: ref[i-1], hyp: hyp[j-1] }); i--; j--; } 
+                else if (op === 'S') { result.unshift({ type: 'substitute', ref: ref[i-1], hyp: hyp[j-1] }); i--; j--; } 
+                else if (op === 'D') { result.unshift({ type: 'delete', ref: ref[i-1], hyp: null }); i--; } 
+                else if (op === 'I') { result.unshift({ type: 'insert', ref: null, hyp: hyp[j-1] }); j--; }
+            }
+            return result;
+        }
+    };
+
+    // --- LINGUISTIC ARRAYS ---
+    const phonemeGroup = {
+        "foundational": ["b", "n", "m", "p", "h", "w", "d"],
+        "early": ["ɡ", "k", "f", "t", "ŋ", "j"],
+        "middle": ["v", "ʤ", "s", "ʧ", "l", "ʃ", "z"],
+        "late": ["ɹ", "ð", "ʒ"],
+        "final": ["θ"],
+    };
+
+    const typicalSubs = {
+        "foundational": [["j", "ø"], ["l", "w"], ["z", "d"], ["ʃ", "s"], ["ʧ", "t"], ["ʧ", "d"], ["ʒ", "f"]],
+        "early": [["ŋ", "n"], ["ɹ", "w"], ["v", "b"], ["ð", "d"]],
+        "middle": [["θ", "f"], ["s", "θ"]],
+    };
+
+    function getDaPerWeights(age) {
+        if (age < 3)  return {"foundational": 0.90, "early": 0.75, "middle": 0.5, "late": 0.00, "final": 0.00};
+        if (age < 4)  return {"foundational": 1.00, "early": 0.90, "middle": 0.75, "late": 0.5, "final": 0.00};
+        if (age < 5)  return {"foundational": 1.00, "early": 1.00, "middle": 0.90, "late": 0.75, "final": 0.50};
+        if (age < 6)  return {"foundational": 1.00, "early": 1.00, "middle": 1.00, "late": 0.90, "final": 0.75};
+        if (age < 7)  return {"foundational": 1.00, "early": 1.00, "middle": 1.00, "late": 1.00, "final": 0.90};
+        return {"foundational": 1.00, "early": 1.00, "middle": 1.00, "late": 1.00, "final": 1.00};
+    }
+
+    function getDaPerSubWeights(age) {
+        if (age < 3) return {"foundational": 0.85, "early": 0.5, "middle": 0.00, "normal": 1.0};
+        if (age < 4) return {"foundational": 1.00, "early": 0.85, "middle": 0.50, "normal": 1.0};
+        if (age < 5) return {"foundational": 1.00, "early": 1.00, "middle": 0.85, "normal": 1.0};
+        return {"foundational": 1.00, "early": 1.00, "middle": 1.00, "normal": 1.0};
+    }
+
+    function getPhGroup(p) {
+        for (const [group, phList] of Object.entries(phonemeGroup)) {
+            if (phList.includes(p)) return group;
+        }
+        return "foundational";
+    }
+
+    // --- HELPER TO DECODE FILENAME GRADE TO NOMINAL AGE ---
+    function parseDemographics(audioPath) {
+        // 1. Split path by slashes and 
+        const filename = audioPath.split('/').pop();
+        
+        // 2. Use Regex to find the pattern starting with 'T' followed by digits (e.g., "T2027257")
+        const match = filename.match(/T\d+/);
+        const targetString = match ? match[0] : "";        
+        // 2. Index 3 corresponds to the 4th character of that string (e.g., '2' in "T2027292")
+        const gradeDigit = targetString.charAt(3);
+        
+        // 3. Set label and match the baseAge to the *lower range* of the developmental bracket
+        if (gradeDigit === '1') {
+            return { label: "Pre-K (Age 4-5)", baseAge: 4 }; // Lower range is 4
+        }
+        if (gradeDigit === '2') {
+            return { label: "Kindergarten (Age 5-6)", baseAge: 5 }; // Lower range is 5
+        }
+        if (gradeDigit === '3') {
+            return { label: "Grade 1 (Age 6-7)", baseAge: 6 }; // Lower range is 6
+        }
+        
+        return { label: "Unknown Grade", baseAge: 7 }; // Default fallback
+    }
+
+    // --- RE-CALCULATE A SPECIFIC CARD ---
+    function calculateCardMetrics(sampleId) {
+        const sample = sampleData.find(s => s.id === sampleId);
+        const ageSelect = document.getElementById(`age-${sampleId}`);
+        const age = parseInt(ageSelect.value);
+
+        const weights = getDaPerWeights(age);
+        const subWeights = getDaPerSubWeights(age);
+
+        const refTokens = sample.text_phonemes.split(/\s+/).filter(Boolean);
+        const hypTokens = sample.audio_phonemes.split(/\s+/).filter(Boolean);
+        const alignment = Alignment.align(refTokens, hypTokens);
+        
+        let totalRefLength = refTokens.length;
+        let perErrors = 0, daperErrors = 0;
+        let perHtml = '', daperHtml = '';
+
+        alignment.forEach(op => {
+            if (op.type === "equal") {
+                perHtml += `<span class="ph correct">${op.ref}</span> `;
+                daperHtml += `<span class="ph correct">${op.ref}</span> `;
+            } 
+            else if (op.type === "substitute") {
+                perErrors += 1;
+                perHtml += `<span class="ph substitution">${op.ref}→${op.hyp} <span class="weight-badge">w:1</span></span> `;
+
+                let subW = weights[getPhGroup(op.ref)] || 1.0;
+                for (const [key, pairs] of Object.entries(typicalSubs)) {
+                    if (pairs.some(pair => pair[0] === op.ref && pair[1] === op.hyp)) {
+                        subW = subWeights[key] !== undefined ? subWeights[key] : 1.0;
+                        break;
+                    }
+                }
+                daperErrors += subW;
+                let status = subW < 1.0 ? "minor-substitution" : "substitution";
+                daperHtml += `<span class="ph ${status}">${op.ref}→${op.hyp} <span class="weight-badge">w:${subW.toFixed(2)}</span></span> `;
+            } 
+            else if (op.type === "delete") {
+                perErrors += 1;
+                perHtml += `<span class="ph deletion">${op.ref} <span class="weight-badge">w:1</span></span> `;
+
+                let delW = weights[getPhGroup(op.ref)] || 1.0;
+                daperErrors += delW;
+                let status = delW < 1.0 ? "minor-deletion" : "deletion";
+                daperHtml += `<span class="ph ${status}">${op.ref} <span class="weight-badge">w:${delW.toFixed(2)}</span></span> `;
+            } 
+            else if (op.type === "insert") {
+                perErrors += 1; daperErrors += 1;
+                perHtml += `<span class="ph insertion">${op.hyp} <span class="weight-badge">w:1</span></span> `;
+                daperHtml += `<span class="ph insertion">${op.hyp} <span class="weight-badge">w:1</span></span> `;
+            }
+        });
+
+        const perRate = totalRefLength > 0 ? (perErrors / totalRefLength) * 100 : 0;
+        const daperRate = totalRefLength > 0 ? (daperErrors / totalRefLength) * 100 : 0;
+
+        // Push updates direct to targeted DOM fields
+        document.getElementById(`per-badge-${sampleId}`).innerText = `PER: ${perRate.toFixed(1)}%`;
+        document.getElementById(`daper-badge-${sampleId}`).innerText = `DA-PER: ${daperRate.toFixed(1)}%`;
+        document.getElementById(`per-tokens-${sampleId}`).innerHTML = perHtml;
+        document.getElementById(`daper-tokens-${sampleId}`).innerHTML = daperHtml;
+    }
+
+    // --- INITIAL CARD STRUCTURING ---
+    function renderInitialDashboard() {
+        const container = document.getElementById('demo-list');
+        container.innerHTML = '';
+
+        sampleData.forEach(sample => {
+            const demoInfo = parseDemographics(sample.audio_path);
+            const card = document.createElement('div');
+            card.className = 'card';
+            
+            card.innerHTML = `
+                <div class="card-header">
+                    <h3 style="margin:0;">Sample #${sample.id} <span style="font-size:0.9rem; font-weight:normal; color:#6b7280; margin-left:10px;">${demoInfo.label}</span></h3>
+                    <div class="controls">
+                        <label for="age-${sample.id}">Eval Age Group:</label>
+                        <select id="age-${sample.id}" onchange="calculateCardMetrics(${sample.id})">
+                            <option value="2" ${demoInfo.baseAge === 2 ? 'selected' : ''}>Age 2</option>
+                            <option value="3" ${demoInfo.baseAge === 3 ? 'selected' : ''}>Age 3</option>
+                            <option value="4" ${demoInfo.baseAge === 4 ? 'selected' : ''}>Age 4</option>
+                            <option value="5" ${demoInfo.baseAge === 5 ? 'selected' : ''}>Age 5</option>
+                            <option value="6" ${demoInfo.baseAge === 6 ? 'selected' : ''}>Age 6</option>
+                            <option value="7" ${demoInfo.baseAge === 7 ? 'selected' : ''}>Age 7+</option>
+                        </select>
+                    </div>
+                </div>
+                
+                <audio class="audio-player" controls src="${sample.audio_path}" 
+                    onerror="console.error('Audio asset failed to load! Targeted Path:', this.src, 'Error Code:', this.error ? this.error.code : 'unknown')">
+                </audio>
+
+                <div class="phoneme-row">
+                    <div class="row-header"><div class="row-title">Ground Truth Text Phonemes</div></div>
+                    <div class="phonemes">
+                        ${sample.text_phonemes.split(/\s+/).filter(Boolean).map(p => `<span class="ph">${p}</span>`).join(' ')}
+                    </div>
+                </div>
+
+                <div class="phoneme-row row-per">
+                    <div class="row-header">
+                        <div class="row-title">Standard PER</div>
+                        <div class="row-error-rate per-badge" id="per-badge-${sample.id}">PER: --%</div>
+                    </div>
+                    <div class="phonemes" id="per-tokens-${sample.id}"></div>
+                </div>
+
+                <div class="phoneme-row row-daper">
+                    <div class="row-header">
+                        <div class="row-title">Developmentally Aware PER (DA-PER)</div>
+                        <div class="row-error-rate daper-badge" id="daper-badge-${sample.id}">DA-PER: --%</div>
+                    </div>
+                    <div class="phonemes" id="daper-tokens-${sample.id}"></div>
+                </div>
+            `;
+            container.appendChild(card);
+            
+            // Execute layout math right after creating elements
+            calculateCardMetrics(sample.id);
+        });
+    }
+
+    // --- SEED LOADER ---
+    fetch('sampled_data.json')
+        .then(res => {
+            if (!res.ok) throw new Error("Status " + res.status);
+            return res.json();
+        })
+        .then(data => {
+            sampleData = data;
+            renderInitialDashboard();
+        })
+        .catch(err => {
+            console.error(err);
+            document.getElementById('demo-list').innerHTML = `<p style="color:red; font-weight:bold;">Failed loading dataset assets (${err.message}).</p>`;
+        });
+</script>
+</body>
+</html>

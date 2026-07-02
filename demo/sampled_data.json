@@ -1,0 +1,32 @@
+[
+  {
+    "id": 1,
+    "audio_path": "audio/colors_T1017257_chunk_006.mp3",
+    "text_phonemes": "b ɪ k ɔ z ɪ f j u w ɑ n t ʌ n u k ʌ l ɝ j u n i d t u d u ð æ t",
+    "audio_phonemes": "k h ə ɕ i t s y w a n t s i ɜ n y k o l o i ɜ j i ɕ i t ɕ y t a i"
+  },
+  {
+    "id": 2,
+    "audio_path": "audio/letters_digits_T2027257_chunk_042.mp3",
+    "text_phonemes": "f ʊ l",
+    "audio_phonemes": "u"
+  },
+  {
+    "id": 3,
+    "audio_path": "audio/letters_digits_T2037298_chunk_030.mp3",
+    "text_phonemes": "v æ n v i ʌ ɛ n",
+    "audio_phonemes": "v a n l i o aɪ n"
+  },
+  {
+    "id": 4,
+    "audio_path": "audio/letters_digits_T2037263_chunk_013.mp3",
+    "text_phonemes": "t ɹ i t ɹ i",
+    "audio_phonemes": "t ɹ i t i ɑ ɹ i i"
+  },
+  {
+    "id": 5,
+    "audio_path": "audio/blocks_T2027292_chunk_002.mp3",
+    "text_phonemes": "w ʌ n t w oʊ",
+    "audio_phonemes": "ɑ n i s"
+  }
+]
